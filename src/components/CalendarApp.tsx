@@ -105,6 +105,7 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
   const [paletteIdx, setPaletteIdx] = useState(0);
   const [dark, setDark] = useState(false);
   const [voiceMode, setVoiceMode] = useState(false);
+  const [autoSpeak, setAutoSpeak] = useState(false);
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
 
@@ -115,10 +116,17 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const voiceModeRef = useRef(false);
+  const autoSpeakRef = useRef(false);
+  const hasProposalRef = useRef(false);
   const sendRef = useRef<(text: string) => void>(() => {});
+  const approveRef = useRef<() => void>(() => {});
+  const discardRef = useRef<() => void>(() => {});
   useEffect(() => {
     voiceModeRef.current = voiceMode;
   }, [voiceMode]);
+  useEffect(() => {
+    autoSpeakRef.current = autoSpeak;
+  }, [autoSpeak]);
 
   const pushToast = useCallback((tone: Toast['tone'], text: string, action?: Toast['action']) => {
     const id = Date.now() + Math.random();
@@ -253,9 +261,22 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
       const combined = [finalBuffer, interim.trim()].filter(Boolean).join(' ');
       setInput(combined);
       if (latestFinal && voiceModeRef.current) {
+        const cmd = latestFinal.trim();
         finalBuffer = '';
         setInput('');
-        sendRef.current(latestFinal);
+        if (
+          hasProposalRef.current &&
+          /^(approve|apply|confirm|yes|go ahead|looks good|do it|save)(\s+(it|the|changes?|all|please))*[.!?]*$/i.test(cmd)
+        ) {
+          approveRef.current();
+        } else if (
+          hasProposalRef.current &&
+          /^(discard|cancel|reject|never mind|nope|no)(\s+(it|the|changes?|please))*[.!?]*$/i.test(cmd)
+        ) {
+          discardRef.current();
+        } else {
+          sendRef.current(cmd);
+        }
       }
     };
 
@@ -463,7 +484,7 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
         .filter(Boolean)
         .sort()[0];
       if (first) setWeekStart(startOfWeek(new Date(first)));
-      if (voiceModeRef.current) speak(replyText);
+      if (voiceModeRef.current && autoSpeakRef.current) speak(replyText);
     } catch (e) {
       pushToast('error', e instanceof Error ? e.message : 'The agent failed');
     } finally {
@@ -620,6 +641,9 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
       pushToast('info', 'Proposal discarded');
     }, 220);
   };
+  hasProposalRef.current = !!(proposal && active.length > 0);
+  approveRef.current = approve;
+  discardRef.current = discardProposal;
 
   const runTriage = async () => {
     setTriaging(true);
@@ -790,7 +814,7 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
                 : 'border-line bg-surface text-mute hover:border-cobalt/40 hover:text-ink'
             }`}
             aria-pressed={voiceMode}
-            title="Toggle Voice Mode (live dictation + spoken replies)"
+            title="Toggle Voice Mode (live dictation + voice approve/discard)"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
@@ -798,6 +822,26 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
               <line x1="12" x2="12" y1="19" y2="22" />
             </svg>
             <span className="hidden sm:inline">{voiceMode ? 'Voice on' : 'Voice'}</span>
+          </button>
+          <button
+            onClick={() => {
+              const next = !autoSpeak;
+              setAutoSpeak(next);
+              if (!next) stopSpeaking();
+            }}
+            className={`hidden items-center gap-1 rounded-[6px] border px-2 py-1 text-xs font-semibold transition sm:inline-flex ${
+              autoSpeak
+                ? 'border-cobalt/35 bg-cobalt/10 text-cobalt'
+                : 'border-line bg-surface text-mute hover:border-ink/30 hover:text-ink'
+            }`}
+            aria-pressed={autoSpeak}
+            title="Optional: read assistant replies aloud"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+              {autoSpeak ? <path d="M15.54 8.46a5 5 0 0 1 0 7.07" /> : <line x1="22" x2="16" y1="9" y2="15" />}
+            </svg>
+            <span className="hidden md:inline">{autoSpeak ? 'TTS on' : 'TTS off'}</span>
           </button>
           <button
             onClick={() => {
