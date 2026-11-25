@@ -2,6 +2,7 @@
 import { signOut } from 'next-auth/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import WeekGrid, { type GridItem } from './WeekGrid';
+import Logo from './Logo';
 import { applyLocal } from '@/lib/apply';
 import { demoEvents, startOfWeek } from '@/lib/demo';
 import { FOCUS_RE, meetingCost, weekHealth } from '@/lib/health';
@@ -457,12 +458,7 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
     <div className="flex h-screen flex-col bg-paper text-ink">
       <header className="flex flex-wrap items-center gap-3 border-b border-line/80 bg-surface/95 px-4 py-2.5 shadow-[0_1px_2px_rgba(16,24,40,0.03)] backdrop-blur-sm">
         <div className="flex items-center gap-2.5">
-          <div className="grid h-7 w-7 place-items-center rounded-[6px] bg-cobalt text-white shadow-[0_2px_6px_rgba(47,75,219,0.28)]" aria-hidden>
-            <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
-              <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.6" />
-              <path d="M5 1.75V4.25M11 1.75V4.25M2 6.5H14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-          </div>
+          <Logo size={28} />
           <span className="font-display text-[17px] font-bold tracking-tight text-ink">Calpilot</span>
           {demo && (
             <span className="rounded-full border border-shift/25 bg-shift/10 px-2.5 py-0.5 text-[11px] font-medium text-shift">
@@ -471,7 +467,9 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
           )}
         </div>
 
-        <div className="flex items-center gap-2.5 sm:ml-4">
+        <div className="hidden h-5 w-px bg-line/80 sm:block" aria-hidden />
+
+        <div className="flex items-center gap-2.5">
           <div className="inline-flex items-center rounded-[10px] border border-line/90 bg-paper/65 p-0.5">
             <button
               onClick={() => shift(-7)}
@@ -661,9 +659,12 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
                         <button
                           key={s}
                           onClick={() => send(s)}
-                          className="rounded-[10px] border border-line/90 bg-surface px-3.5 py-2.5 text-left text-[13px] font-medium text-ink shadow-[0_1px_2px_rgba(16,24,40,0.03)] transition hover:border-cobalt/55 hover:bg-cobalt/[0.04] hover:shadow-[0_2px_6px_-2px_rgba(47,75,219,0.14)]"
+                          className="group flex items-center justify-between gap-2 rounded-[10px] border border-line/90 bg-surface px-3.5 py-2.5 text-left text-[13px] font-medium text-ink shadow-[0_1px_2px_rgba(16,24,40,0.03)] transition hover:border-cobalt/55 hover:bg-cobalt/[0.04] hover:shadow-[0_2px_6px_-2px_rgba(47,75,219,0.14)]"
                         >
-                          {s}
+                          <span>{s}</span>
+                          <span className="text-xs text-mute opacity-0 transition group-hover:translate-x-0.5 group-hover:text-cobalt group-hover:opacity-100">
+                            →
+                          </span>
                         </button>
                       ))}
                     </div>

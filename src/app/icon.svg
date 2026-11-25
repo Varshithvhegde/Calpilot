@@ -1,0 +1,27 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="b" x1="12" y1="12" x2="52" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3B56EE"/>
+      <stop offset="100%" stop-color="#2336C8"/>
+    </linearGradient>
+    <linearGradient id="r" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4A64F5"/>
+      <stop offset="100%" stop-color="#DCE3FF"/>
+    </linearGradient>
+    <clipPath id="c">
+      <rect x="14" y="21" width="36" height="29" rx="7"/>
+    </clipPath>
+  </defs>
+  <rect x="6" y="11" width="52" height="47" rx="14" fill="url(#b)"/>
+  <rect x="19" y="5" width="7" height="14" rx="3.5" fill="url(#r)"/>
+  <rect x="38" y="5" width="7" height="14" rx="3.5" fill="url(#r)"/>
+  <g clip-path="url(#c)">
+    <rect x="14" y="21" width="36" height="29" fill="#EEF1FA"/>
+    <rect x="14" y="21" width="24" height="9" fill="#1A85F0"/>
+    <rect x="38" y="21" width="12" height="10" fill="#EA4335"/>
+    <rect x="38" y="31" width="12" height="10" fill="#FBBC04"/>
+    <rect x="34" y="41" width="16" height="9" fill="#22A957"/>
+    <rect x="20" y="26" width="24" height="19" rx="5" fill="#FFFFFF"/>
+  </g>
+  <path d="M32 29.5C32.55 33.05 33.45 33.95 37 34.5C33.45 35.05 32.55 35.95 32 39.5C31.45 35.95 30.55 35.05 27 34.5C30.55 33.95 31.45 33.05 32 29.5Z" fill="#2F4BDB"/>
+</svg>
