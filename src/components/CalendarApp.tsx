@@ -243,48 +243,61 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = 'en-US';
-    let finalBuffer = '';
+    let sentIndex = 0;
+    let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+    let latestText = '';
+    let latestLen = 0;
+
+    const flushVoice = () => {
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
+      const cmd = latestText.trim();
+      if (!cmd || !voiceModeRef.current) return;
+      sentIndex = latestLen;
+      latestText = '';
+      setInput('');
+      if (
+        hasProposalRef.current &&
+        /^(approve|apply|confirm|yes|go ahead|looks good|do it|save)(\s+(it|the|changes?|all|please))*[.!?]*$/i.test(cmd)
+      ) {
+        approveRef.current();
+      } else if (
+        hasProposalRef.current &&
+        /^(discard|cancel|reject|never mind|nope|no)(\s+(it|the|changes?|please))*[.!?]*$/i.test(cmd)
+      ) {
+        discardRef.current();
+      } else {
+        sendRef.current(cmd);
+      }
+    };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onresult = (ev: any) => {
-      let interim = '';
-      let latestFinal = '';
-      for (let i = ev.resultIndex; i < ev.results.length; i++) {
-        const transcript = ev.results[i][0]?.transcript ?? '';
-        if (ev.results[i].isFinal) {
-          finalBuffer += (finalBuffer ? ' ' : '') + transcript.trim();
-          latestFinal = finalBuffer;
-        } else {
-          interim += transcript;
-        }
+      const parts: string[] = [];
+      for (let i = sentIndex; i < ev.results.length; i++) {
+        const t = (ev.results[i][0]?.transcript ?? '').trim();
+        if (t) parts.push(t);
       }
-      const combined = [finalBuffer, interim.trim()].filter(Boolean).join(' ');
-      setInput(combined);
-      if (latestFinal && voiceModeRef.current) {
-        const cmd = latestFinal.trim();
-        finalBuffer = '';
-        setInput('');
-        if (
-          hasProposalRef.current &&
-          /^(approve|apply|confirm|yes|go ahead|looks good|do it|save)(\s+(it|the|changes?|all|please))*[.!?]*$/i.test(cmd)
-        ) {
-          approveRef.current();
-        } else if (
-          hasProposalRef.current &&
-          /^(discard|cancel|reject|never mind|nope|no)(\s+(it|the|changes?|please))*[.!?]*$/i.test(cmd)
-        ) {
-          discardRef.current();
-        } else {
-          sendRef.current(cmd);
-        }
+      latestLen = ev.results.length;
+      latestText = parts.join(' ').trim();
+      setInput(latestText);
+
+      if (silenceTimer) clearTimeout(silenceTimer);
+      if (voiceModeRef.current && latestText) {
+        silenceTimer = setTimeout(flushVoice, 1200);
       }
     };
 
     rec.onerror = () => {
+      if (silenceTimer) clearTimeout(silenceTimer);
       setListening(false);
       recognitionRef.current = null;
     };
     rec.onend = () => {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      if (voiceModeRef.current && latestText.trim()) flushVoice();
       setListening(false);
       recognitionRef.current = null;
     };
