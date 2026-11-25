@@ -305,6 +305,10 @@ How you work:
   };
 
   let nudged = false;
+  const isReadOnlyQuestion =
+    /^\s*(ok\s+)?(can you\s+)?(check|what|which|when|who|how|show|list|get|any|do i have|are there|tell me)\b/i.test(
+      opts.message,
+    );
   for (let i = 0; i < 8; i++) {
     const res = await openai().chat.completions.create({
       model: MODEL(),
@@ -322,7 +326,10 @@ How you work:
       if (
         !proposal &&
         !nudged &&
-        /\b(propos(e|ing|ed)|schedul(e|ed|ing)|mov(e|ed|ing)|add(ed|ing)|creat(e|ed|ing)|delet(e|ed|ing)|updat(e|ed|ing))\b/i.test(reply) &&
+        !isReadOnlyQuestion &&
+        /\b(i('ve| have| will|'ll)?\s+(propos|schedul|mov|add|creat|delet|remov|reschedul|updat)|proposing to)\b/i.test(
+          reply,
+        ) &&
         !/\b(cannot|can't|unable|conflict|already booked)\b/i.test(reply)
       ) {
         nudged = true;
