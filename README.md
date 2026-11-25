@@ -1,10 +1,15 @@
 # Calpilot
 
+<img width="1531" height="871" alt="image" src="https://github.com/user-attachments/assets/11142046-383d-4786-886f-29852973de88" />
+
+
 An AI chief of staff for Google Calendar. You tell it what your week should look like, it draws the changes as an animated overlay on your real calendar (added, removed, moved), and nothing is written to Google until you approve.
 
 Built with Next.js 14 (App Router), NextAuth (Google), the Google Calendar REST API, OpenAI function calling, and optional Fish Audio S2.1 Pro TTS.
 
 ## What it does
+<img width="1532" height="866" alt="image" src="https://github.com/user-attachments/assets/73ccff0f-ed96-4970-82c1-133bb62a556b" />
+
 
 - **Ask tab & interactive event cards.** Plain-language instructions (`"protect 2 hours of deep work every weekday"`, `"clear my Friday afternoon"`, `"what if I take Thursday off?"`). The agent reads your calendar with tools, finds real free slots, and returns a proposal. Schedule lookups (e.g. `"tomorrow"`, `"pipeline review"`) also render clickable event cards right inside the chat reply.
 - **Animated ghost diff.** Proposed changes stagger onto the grid before they exist: green dashed with glow pulse for added events, red hatched with a sweeping strikethrough for removals, and amber with a dashed SVG trail for moves. Untick any item or click **Edit** on a proposed change to tweak its title, date, or time before applying.
