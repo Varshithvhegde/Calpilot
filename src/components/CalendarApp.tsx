@@ -104,10 +104,21 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
   const [paletteQuery, setPaletteQuery] = useState('');
   const [paletteIdx, setPaletteIdx] = useState(0);
   const [dark, setDark] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const paletteRef = useRef<HTMLInputElement>(null);
   const chatEnd = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
+  const voiceModeRef = useRef(false);
+  const sendRef = useRef<(text: string) => void>(() => {});
+  useEffect(() => {
+    voiceModeRef.current = voiceMode;
+  }, [voiceMode]);
 
   const pushToast = useCallback((tone: Toast['tone'], text: string, action?: Toast['action']) => {
     const id = Date.now() + Math.random();
@@ -142,6 +153,147 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
       localStorage.setItem('cc-theme', next ? 'dark' : 'light');
     } catch {}
   };
+
+  const stopSpeaking = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setSpeaking(false);
+  }, []);
+
+  const speak = useCallback(
+    async (text: string) => {
+      const clean = text.trim();
+      if (!clean) return;
+      stopSpeaking();
+      setSpeaking(true);
+      try {
+        const res = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: clean }),
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          audioRef.current = audio;
+          audio.onended = () => {
+            URL.revokeObjectURL(url);
+            audioRef.current = null;
+            setSpeaking(false);
+          };
+          audio.onerror = () => {
+            URL.revokeObjectURL(url);
+            audioRef.current = null;
+            setSpeaking(false);
+          };
+          await audio.play();
+          return;
+        }
+      } catch {}
+
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        const u = new SpeechSynthesisUtterance(clean);
+        u.rate = 1.02;
+        u.onend = () => setSpeaking(false);
+        u.onerror = () => setSpeaking(false);
+        window.speechSynthesis.speak(u);
+      } else {
+        setSpeaking(false);
+      }
+    },
+    [stopSpeaking],
+  );
+
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {}
+      recognitionRef.current = null;
+    }
+    setListening(false);
+  }, []);
+
+  const startListening = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      pushToast('error', 'Live dictation is not supported in this browser. Try Chrome or Edge.');
+      return;
+    }
+    stopSpeaking();
+    stopListening();
+    const rec = new SR();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = 'en-US';
+    let finalBuffer = '';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (ev: any) => {
+      let interim = '';
+      let latestFinal = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const transcript = ev.results[i][0]?.transcript ?? '';
+        if (ev.results[i].isFinal) {
+          finalBuffer += (finalBuffer ? ' ' : '') + transcript.trim();
+          latestFinal = finalBuffer;
+        } else {
+          interim += transcript;
+        }
+      }
+      const combined = [finalBuffer, interim.trim()].filter(Boolean).join(' ');
+      setInput(combined);
+      if (latestFinal && voiceModeRef.current) {
+        finalBuffer = '';
+        setInput('');
+        sendRef.current(latestFinal);
+      }
+    };
+
+    rec.onerror = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+    rec.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = rec;
+    setListening(true);
+    setTab('agent');
+    setSheetOpen(true);
+    rec.start();
+  }, [pushToast, stopListening, stopSpeaking]);
+
+  const toggleVoiceMode = () => {
+    if (voiceMode) {
+      setVoiceMode(false);
+      stopListening();
+      stopSpeaking();
+      pushToast('info', 'Voice mode off');
+    } else {
+      setVoiceMode(true);
+      startListening();
+      pushToast('info', 'Voice mode on — speak naturally');
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      stopListening();
+      stopSpeaking();
+    };
+  }, [stopListening, stopSpeaking]);
 
   // Cycle AI thinking step every 1.2s
   useEffect(() => {
@@ -301,7 +453,8 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'The agent failed');
-      setMessages((m) => [...m, { role: 'assistant', content: data.reply || 'Done.' }]);
+      const replyText = data.reply || 'Done.';
+      setMessages((m) => [...m, { role: 'assistant', content: replyText }]);
       setProposal(data.proposal ?? null);
       setProposalPhase('idle');
       setExcluded(new Set());
@@ -310,12 +463,14 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
         .filter(Boolean)
         .sort()[0];
       if (first) setWeekStart(startOfWeek(new Date(first)));
+      if (voiceModeRef.current) speak(replyText);
     } catch (e) {
       pushToast('error', e instanceof Error ? e.message : 'The agent failed');
     } finally {
       setBusy(false);
     }
   };
+  sendRef.current = send;
 
   const approve = async () => {
     if (!proposal || !active.length) return;
@@ -618,6 +773,32 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
         </div>
 
         <div className="ml-auto flex items-center gap-2 text-sm">
+          {speaking && (
+            <button
+              onClick={stopSpeaking}
+              className="inline-flex items-center gap-1.5 rounded-[6px] border border-cobalt/30 bg-cobalt/10 px-2.5 py-1 text-xs font-semibold text-cobalt transition hover:bg-cobalt/15"
+            >
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cobalt" />
+              <span>Stop</span>
+            </button>
+          )}
+          <button
+            onClick={toggleVoiceMode}
+            className={`inline-flex items-center gap-1.5 rounded-[6px] border px-2.5 py-1 text-xs font-semibold transition ${
+              voiceMode
+                ? 'border-cobalt/40 bg-cobalt text-white shadow-[0_2px_6px_rgba(47,75,219,0.28)]'
+                : 'border-line bg-surface text-mute hover:border-cobalt/40 hover:text-ink'
+            }`}
+            aria-pressed={voiceMode}
+            title="Toggle Voice Mode (live dictation + spoken replies)"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" x2="12" y1="19" y2="22" />
+            </svg>
+            <span className="hidden sm:inline">{voiceMode ? 'Voice on' : 'Voice'}</span>
+          </button>
           <button
             onClick={() => {
               setPaletteOpen(true);
@@ -842,16 +1023,30 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
                   </div>
                 )}
                 {messages.map((m, i) => (
-                  <div key={i} className={m.role === 'user' ? 'flex justify-end' : ''}>
-                    <p
+                  <div key={i} className={m.role === 'user' ? 'flex justify-end' : 'group'}>
+                    <div
                       className={`max-w-[88%] whitespace-pre-wrap rounded-[16px] px-3.5 py-2.5 text-[13px] leading-relaxed ${
                         m.role === 'user'
                           ? 'rounded-br-[6px] bg-ink text-paper shadow-[0_2px_6px_rgba(16,24,40,0.14)]'
                           : 'rounded-bl-[6px] border border-line/70 bg-paper/75 text-ink'
                       }`}
                     >
-                      {m.content}
-                    </p>
+                      <p>{m.content}</p>
+                      {m.role === 'assistant' && (
+                        <button
+                          type="button"
+                          onClick={() => speak(m.content)}
+                          className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-mute opacity-0 transition hover:text-cobalt group-hover:opacity-100 focus:opacity-100"
+                          aria-label="Read reply aloud"
+                        >
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                          </svg>
+                          Speak
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
                 {busy && (
@@ -968,11 +1163,28 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
                 }}
                 className="flex gap-2 border-t border-line/80 bg-paper/35 p-3"
               >
+                <button
+                  type="button"
+                  onClick={() => (listening ? stopListening() : startListening())}
+                  className={`grid h-9 w-9 shrink-0 place-items-center rounded-[10px] border transition ${
+                    listening
+                      ? 'border-drop bg-drop/10 text-drop ring-2 ring-drop/25'
+                      : 'border-line bg-surface text-mute hover:border-cobalt/50 hover:text-cobalt'
+                  }`}
+                  aria-label={listening ? 'Stop live dictation' : 'Start live dictation'}
+                  title={listening ? 'Stop listening' : 'Dictate'}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" x2="12" y1="19" y2="22" />
+                  </svg>
+                </button>
                 <input
                   ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Ask or instruct (Ctrl/Cmd+K)"
+                  placeholder={listening ? 'Listening… speak now' : 'Ask or instruct (Ctrl/Cmd+K)'}
                   className="min-w-0 flex-1 rounded-[10px] border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-mute/70 focus:border-cobalt focus:outline-none focus:ring-2 focus:ring-cobalt/15"
                   aria-label="Message Calpilot"
                 />
