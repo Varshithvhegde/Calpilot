@@ -23,6 +23,14 @@ const THINKING_STEPS = ['Reading your calendar', 'Finding free slots', 'Drafting
 
 const when = (iso?: string) =>
   iso ? new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+const whenDate = (startIso?: string, endIso?: string) => {
+  if (!startIso) return '';
+  const s = new Date(startIso);
+  const datePart = s.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const startTime = s.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const endTime = endIso ? ` – ${new Date(endIso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : '';
+  return `${datePart} · ${startTime}${endTime}`;
+};
 const money = (n: number) => `$${n.toLocaleString('en-US')}`;
 const pad2 = (n: number) => String(n).padStart(2, '0');
 const toYmdLocal = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -1726,7 +1734,7 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
                         {t.decision}
                       </span>
                     </div>
-                    <p className="mt-1 text-xs font-medium text-mute tabular-nums">{when(t.start)}</p>
+                    <p className="mt-1 text-xs font-medium text-mute tabular-nums">{whenDate(t.start, t.end)}</p>
                     <p className="mt-1.5 text-xs leading-relaxed text-ink">{t.reason}</p>
                     {t.suggestion && <p className="mt-1 text-xs text-mute">{t.suggestion}</p>}
                     <button
