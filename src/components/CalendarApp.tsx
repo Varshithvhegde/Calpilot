@@ -10,7 +10,7 @@ import type { CalEvent, Change, ChatMsg, Proposal, TriageItem } from '@/lib/type
 
 type User = { name?: string | null; email?: string | null; image?: string | null };
 type Tab = 'agent' | 'insights' | 'invites';
-type Toast = { id: number; tone: 'success' | 'info' | 'error'; text: string };
+type Toast = { id: number; tone: 'success' | 'info' | 'error'; text: string; action?: { label: string; onClick: () => void } };
 
 const SUGGESTIONS = [
   'Protect 2 hours of deep work every weekday this week',
@@ -87,6 +87,12 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [applying, setApplying] = useState(false);
   const [selected, setSelected] = useState<CalEvent | null>(null);
+  const [prepBrief, setPrepBrief] = useState<string | null>(null);
+  const [prepping, setPrepping] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesText, setNotesText] = useState('');
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [actionItems, setActionItems] = useState<string[] | null>(null);
 
   const [goals, setGoals] = useStored<string>('cc-goals', '');
   const [rate, setRate] = useStored<number>('cc-rate', 60);
@@ -103,13 +109,20 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
   const paletteRef = useRef<HTMLInputElement>(null);
   const chatEnd = useRef<HTMLDivElement>(null);
 
-  const pushToast = useCallback((tone: Toast['tone'], text: string) => {
+  const pushToast = useCallback((tone: Toast['tone'], text: string, action?: Toast['action']) => {
     const id = Date.now() + Math.random();
-    setToasts((t) => [...t.slice(-3), { id, tone, text }]);
+    setToasts((t) => [...t.slice(-3), { id, tone, text, action }]);
     setTimeout(() => {
       setToasts((t) => t.filter((x) => x.id !== id));
-    }, 4200);
+    }, action ? 8000 : 4200);
   }, []);
+
+  useEffect(() => {
+    setPrepBrief(null);
+    setNotesOpen(false);
+    setNotesText('');
+    setActionItems(null);
+  }, [selected?.id]);
 
   // Theme initialization & persistence
   useEffect(() => {
@@ -308,25 +321,75 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
     if (!proposal || !active.length) return;
     setApplying(true);
     setProposalPhase('applying');
+    const prevEvents = events;
+    const appliedChanges = [...active];
     try {
       await new Promise((r) => setTimeout(r, 260));
+      let reverseChanges: Change[] = [];
       if (demo) {
-        setEvents((evs) => applyLocal(evs, active));
+        setEvents((evs) => applyLocal(evs, appliedChanges));
       } else {
         const res = await fetch('/api/commit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tz, changes: active }),
+          body: JSON.stringify({ tz, changes: appliedChanges }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Could not apply changes');
-        const failed = (data.results as { ok: boolean; error?: string }[]).filter((r) => !r.ok);
+        const results = data.results as { id: string; ok: boolean; createdId?: string; error?: string }[];
+        const failed = results.filter((r) => !r.ok);
         if (failed.length) pushToast('error', `${failed.length} change(s) failed: ${failed[0].error}`);
+
+        const okMap = new Map(results.filter((r) => r.ok).map((r) => [r.id, r]));
+        reverseChanges = appliedChanges
+          .map((c, idx): Change | null => {
+            const r = okMap.get(c.id);
+            if (!r) return null;
+            if (c.type === 'create' && r.createdId) {
+              return { id: `u-${idx}`, type: 'delete', eventId: r.createdId, reason: 'Undo create' };
+            }
+            if (c.type === 'move' && c.eventId && c.before) {
+              return { id: `u-${idx}`, type: 'move', eventId: c.eventId, start: c.before.start, end: c.before.end, reason: 'Undo move' };
+            }
+            if (c.type === 'delete' && c.before) {
+              return { id: `u-${idx}`, type: 'create', title: c.before.title, start: c.before.start, end: c.before.end, reason: 'Undo delete' };
+            }
+            return null;
+          })
+          .filter((x): x is Change => x !== null);
         await loadEvents();
       }
-      const countText = `Applied ${active.length} change${active.length > 1 ? 's' : ''} to your calendar.`;
+      const countText = `Applied ${appliedChanges.length} change${appliedChanges.length > 1 ? 's' : ''} to your calendar.`;
       setMessages((m) => [...m, { role: 'assistant', content: countText }]);
-      pushToast('success', countText);
+      const canUndo = demo || reverseChanges.length > 0;
+      pushToast(
+        'success',
+        countText,
+        canUndo
+          ? {
+              label: 'Undo',
+              onClick: async () => {
+                if (demo) {
+                  setEvents(prevEvents);
+                  pushToast('info', 'Undid last batch');
+                } else {
+                  try {
+                    const res = await fetch('/api/commit', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ tz, changes: reverseChanges }),
+                    });
+                    if (!res.ok) throw new Error('Could not undo');
+                    await loadEvents();
+                    pushToast('info', 'Undid last batch');
+                  } catch (e) {
+                    pushToast('error', e instanceof Error ? e.message : 'Undo failed');
+                  }
+                }
+              },
+            }
+          : undefined,
+      );
       setProposal(null);
       setProposalPhase('idle');
     } catch (e) {
@@ -334,6 +397,62 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
       pushToast('error', e instanceof Error ? e.message : 'Could not apply changes');
     } finally {
       setApplying(false);
+    }
+  };
+
+  const runPrep = async () => {
+    if (!selected || prepping) return;
+    setPrepping(true);
+    try {
+      const otherEmails = new Set(selected.attendees.filter((a) => !a.self).map((a) => a.email));
+      const relatedEvents = events.filter(
+        (e) => e.id !== selected.id && e.attendees.some((a) => !a.self && otherEmails.has(a.email)),
+      );
+      const res = await fetch('/api/prep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'prep', tz, event: selected, relatedEvents, goals }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Prep failed');
+      setPrepBrief(data.brief);
+    } catch (e) {
+      pushToast('error', e instanceof Error ? e.message : 'Prep failed');
+    } finally {
+      setPrepping(false);
+    }
+  };
+
+  const runNotes = async () => {
+    if (!selected || notesLoading || !notesText.trim()) return;
+    setNotesLoading(true);
+    try {
+      const res = await fetch('/api/prep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'notes', tz, event: selected, notes: notesText, goals }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not process notes');
+      setActionItems(data.actionItems ?? []);
+      if (data.proposal) {
+        setProposal(data.proposal);
+        setProposalPhase('idle');
+        setExcluded(new Set());
+        setTab('agent');
+        setSheetOpen(true);
+        setMessages((m) => [
+          ...m,
+          { role: 'assistant', content: `Extracted action items from "${selected.title}" and proposed follow-up event(s).` },
+        ]);
+        pushToast('info', 'Follow-up event(s) added to preview');
+      } else {
+        pushToast('success', 'Action items extracted');
+      }
+    } catch (e) {
+      pushToast('error', e instanceof Error ? e.message : 'Could not process notes');
+    } finally {
+      setNotesLoading(false);
     }
   };
 
@@ -558,7 +677,7 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
             onTryPrompt={(p) => send(p)}
           />
           {selected && (
-            <div className="settle absolute bottom-4 left-16 z-20 w-80 rounded-[10px] border border-line bg-surface p-4 text-sm shadow-[0_4px_12px_rgba(16,24,40,0.08),0_16px_36px_-12px_rgba(16,24,40,0.28)]">
+            <div className="settle absolute bottom-4 left-16 z-20 max-h-[75vh] w-96 max-w-[calc(100%-5rem)] overflow-y-auto rounded-[10px] border border-line bg-surface p-4 text-sm shadow-[0_4px_12px_rgba(16,24,40,0.08),0_16px_36px_-12px_rgba(16,24,40,0.28)]">
               <div className="flex items-start justify-between gap-3">
                 <p className="font-display text-base font-bold leading-snug text-ink">{selected.title}</p>
                 <button
@@ -586,10 +705,62 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
                   href={selected.htmlLink}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-cobalt hover:underline"
+                  className="mt-2.5 inline-flex items-center gap-1 text-xs font-semibold text-cobalt hover:underline"
                 >
                   Open in Google Calendar →
                 </a>
+              )}
+
+              <div className="mt-3.5 flex gap-2 border-t border-line/80 pt-3">
+                <button
+                  onClick={runPrep}
+                  disabled={prepping}
+                  className="flex-1 rounded-[6px] bg-cobalt/10 px-2.5 py-1.5 text-xs font-semibold text-cobalt transition hover:bg-cobalt/15 disabled:opacity-50"
+                >
+                  {prepping ? 'Prepping…' : 'Prep me'}
+                </button>
+                <button
+                  onClick={() => setNotesOpen((o) => !o)}
+                  className="flex-1 rounded-[6px] border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink transition hover:bg-paper"
+                >
+                  {notesOpen ? 'Hide notes' : 'Paste notes'}
+                </button>
+              </div>
+
+              {prepBrief && (
+                <div className="mt-3 whitespace-pre-wrap rounded-[6px] border border-cobalt/25 bg-cobalt/[0.04] p-2.5 text-xs leading-relaxed text-ink">
+                  {prepBrief}
+                </div>
+              )}
+
+              {notesOpen && (
+                <div className="mt-3 space-y-2">
+                  <textarea
+                    value={notesText}
+                    onChange={(e) => setNotesText(e.target.value)}
+                    rows={3}
+                    placeholder="Paste meeting notes to extract action items & follow-ups..."
+                    className="w-full rounded-[6px] border border-line bg-paper/40 px-2.5 py-2 text-xs text-ink placeholder:text-mute/70 focus:border-cobalt focus:outline-none"
+                  />
+                  <button
+                    onClick={runNotes}
+                    disabled={notesLoading || !notesText.trim()}
+                    className="w-full rounded-[6px] bg-ink px-3 py-1.5 text-xs font-semibold text-paper transition hover:bg-ink/90 disabled:opacity-40"
+                  >
+                    {notesLoading ? 'Extracting…' : 'Extract action items & follow-ups'}
+                  </button>
+                </div>
+              )}
+
+              {actionItems && actionItems.length > 0 && (
+                <div className="mt-3 rounded-[6px] border border-add/25 bg-add/[0.06] p-2.5 text-xs">
+                  <p className="font-semibold text-add">Action items</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-4 text-ink">
+                    {actionItems.map((it, idx) => (
+                      <li key={idx}>{it}</li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
           )}
@@ -1038,6 +1209,18 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
                 className={`toast-in pointer-events-auto flex items-center gap-3 rounded-[10px] border px-3.5 py-2.5 text-xs font-semibold shadow-[0_8px_24px_-6px_rgba(16,24,40,0.22)] ${tone}`}
               >
                 <span>{t.text}</span>
+                {t.action && (
+                  <button
+                    onClick={() => {
+                      const act = t.action;
+                      setToasts((x) => x.filter((i) => i.id !== t.id));
+                      act?.onClick();
+                    }}
+                    className="rounded-[6px] border border-cobalt/30 bg-cobalt/10 px-2 py-0.5 text-[11px] font-bold text-cobalt transition hover:bg-cobalt/20"
+                  >
+                    {t.action.label}
+                  </button>
+                )}
                 <button
                   onClick={() => setToasts((x) => x.filter((i) => i.id !== t.id))}
                   className="text-mute hover:text-ink"

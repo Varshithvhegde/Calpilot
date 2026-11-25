@@ -32,14 +32,21 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: 'Bad request' }, { status: 400 });
   const { changes, tz } = parsed.data;
 
-  const results: { id: string; ok: boolean; error?: string }[] = [];
+  const results: { id: string; ok: boolean; createdId?: string; error?: string }[] = [];
   for (const c of changes) {
     try {
-      if (c.type === 'create') await createEvent(token, c, tz);
-      else if (c.type === 'move' && c.eventId && c.start && c.end) await moveEvent(token, c.eventId, c.start, c.end, tz);
-      else if (c.type === 'delete' && c.eventId) await deleteEvent(token, c.eventId);
-      else throw new Error('Incomplete change');
-      results.push({ id: c.id, ok: true });
+      if (c.type === 'create') {
+        const created = await createEvent(token, c, tz);
+        results.push({ id: c.id, ok: true, createdId: created?.id });
+      } else if (c.type === 'move' && c.eventId && c.start && c.end) {
+        await moveEvent(token, c.eventId, c.start, c.end, tz);
+        results.push({ id: c.id, ok: true });
+      } else if (c.type === 'delete' && c.eventId) {
+        await deleteEvent(token, c.eventId);
+        results.push({ id: c.id, ok: true });
+      } else {
+        throw new Error('Incomplete change');
+      }
     } catch (e) {
       results.push({ id: c.id, ok: false, error: e instanceof Error ? e.message : 'failed' });
     }
