@@ -1,0 +1,292 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --cc-paper: 237 240 245;
+  --cc-surface: 255 255 255;
+  --cc-ink: 16 24 40;
+  --cc-mute: 91 101 120;
+  --cc-line: 213 219 231;
+  --cc-cobalt: 47 75 219;
+  --cc-add: 14 159 110;
+  --cc-drop: 214 51 108;
+  --cc-shift: 217 142 4;
+  --cc-hour-line: #e3e7f0;
+}
+
+.dark {
+  color-scheme: dark;
+  --cc-paper: 15 20 30;
+  --cc-surface: 22 29 42;
+  --cc-ink: 241 245 252;
+  --cc-mute: 148 160 184;
+  --cc-line: 43 53 74;
+  --cc-cobalt: 91 122 255;
+  --cc-add: 34 197 142;
+  --cc-drop: 244 91 141;
+  --cc-shift: 245 176 48;
+  --cc-hour-line: #232c3f;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: rgb(var(--cc-paper));
+  color: rgb(var(--cc-ink));
+  font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle custom scrollbars for grid & sidebar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--cc-mute) / 0.28);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--cc-mute) / 0.45);
+}
+
+/* Diagonal hatch used for events the agent wants to remove */
+.hatch-drop {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(var(--cc-drop) / 0.16) 0,
+    rgb(var(--cc-drop) / 0.16) 5px,
+    rgb(var(--cc-drop) / 0.04) 5px,
+    rgb(var(--cc-drop) / 0.04) 10px
+  );
+}
+
+.dark .hatch-drop {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(var(--cc-drop) / 0.24) 0,
+    rgb(var(--cc-drop) / 0.24) 5px,
+    rgb(var(--cc-drop) / 0.07) 5px,
+    rgb(var(--cc-drop) / 0.07) 10px
+  );
+}
+
+.hour-lines {
+  background-image: linear-gradient(to bottom, var(--cc-hour-line) 1px, transparent 1px);
+  background-size: 100% 52px;
+}
+
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.settle {
+  animation: settle 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Ghost event animations */
+@keyframes ghostAddIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+    box-shadow: 0 0 0 0 rgb(var(--cc-add) / 0.45);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.01);
+    box-shadow: 0 0 0 6px rgb(var(--cc-add) / 0.18);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 2px 8px -2px rgb(var(--cc-add) / 0.2);
+  }
+}
+
+@keyframes ghostRemoveIn {
+  0% {
+    opacity: 0.45;
+    transform: scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes strikeSweep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes ghostMoveIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes trailDash {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+@keyframes ghostSolidify {
+  0% {
+    transform: scale(1.02);
+    filter: brightness(1.05);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+@keyframes ghostFadeOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes shimmerSlide {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes paletteIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ghost-add {
+  animation: ghostAddIn 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ghost-remove {
+  animation: ghostRemoveIn 260ms ease-out both;
+}
+
+.ghost-strike {
+  transform-origin: left center;
+  animation: strikeSweep 340ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ghost-move {
+  animation: ghostMoveIn 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ghost-trail-line {
+  stroke-dasharray: 4 4;
+  animation: trailDash 900ms linear infinite;
+}
+
+.ghost-applying {
+  animation: ghostSolidify 300ms ease-out both;
+  border-style: solid !important;
+}
+
+.ghost-discarding {
+  animation: ghostFadeOut 220ms ease-in forwards !important;
+}
+
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--cc-mute)) 0%,
+    rgb(var(--cc-ink)) 45%,
+    rgb(var(--cc-cobalt)) 55%,
+    rgb(var(--cc-mute)) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmerSlide 1.8s linear infinite;
+}
+
+.palette-in {
+  animation: paletteIn 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.toast-in {
+  animation: toastIn 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--cc-cobalt));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settle,
+  .ghost-add,
+  .ghost-remove,
+  .ghost-strike,
+  .ghost-move,
+  .ghost-trail-line,
+  .ghost-applying,
+  .ghost-discarding,
+  .shimmer-text,
+  .palette-in,
+  .toast-in {
+    animation: none !important;
+  }
+  .shimmer-text {
+    background: none;
+    color: rgb(var(--cc-mute));
+  }
+}
