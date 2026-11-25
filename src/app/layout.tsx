@@ -3,7 +3,7 @@ import './globals.css';
 import Providers from './providers';
 
 export const metadata: Metadata = {
-  title: 'Calendar Copilot',
+  title: 'Calpilot',
   description: 'An AI chief of staff for Google Calendar. It proposes, you approve.',
 };
 

@@ -187,7 +187,7 @@ export default function Landing({ onDemo }: { onDemo: () => void }) {
               <path d="M5 1.75V4.25M11 1.75V4.25M2 6.5H14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
             </svg>
           </div>
-          <span className="font-display text-[17px] font-bold tracking-tight text-ink">Calendar Copilot</span>
+          <span className="font-display text-[17px] font-bold tracking-tight text-ink">Calpilot</span>
         </div>
         <div className="flex items-center gap-2.5">
           <button

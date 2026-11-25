@@ -463,7 +463,7 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
               <path d="M5 1.75V4.25M11 1.75V4.25M2 6.5H14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
             </svg>
           </div>
-          <span className="font-display text-[17px] font-bold tracking-tight text-ink">Calendar Copilot</span>
+          <span className="font-display text-[17px] font-bold tracking-tight text-ink">Calpilot</span>
           {demo && (
             <span className="rounded-full border border-shift/25 bg-shift/10 px-2.5 py-0.5 text-[11px] font-medium text-shift">
               Demo week · nothing touches Google
@@ -802,7 +802,7 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="Ask or instruct (Ctrl/Cmd+K)"
                   className="min-w-0 flex-1 rounded-[10px] border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-mute/70 focus:border-cobalt focus:outline-none focus:ring-2 focus:ring-cobalt/15"
-                  aria-label="Message Calendar Copilot"
+                  aria-label="Message Calpilot"
                 />
                 <button
                   disabled={busy || !input.trim()}
