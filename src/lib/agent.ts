@@ -155,11 +155,12 @@ export async function runAgent(opts: {
   events: CalEvent[];
   tz: string;
   goals?: string;
-}): Promise<{ reply: string; proposal: Proposal | null }> {
+}): Promise<{ reply: string; proposal: Proposal | null; events?: CalEvent[] }> {
   const { events, tz } = opts;
   const now = new Date();
   const weekday = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(now);
   let proposal: Proposal | null = null;
+  let lastListed: CalEvent[] = [];
   const today = ymdInTz(now, tz);
   const dateMap = Array.from({ length: 14 }, (_, i) => {
     const d = addDaysYmd(today, i);
@@ -202,6 +203,7 @@ How you work:
       const from = parseInTz(`${sd}T00:00:00`, tz).getTime();
       const to = parseInTz(`${addDaysYmd(ed, 1)}T00:00:00`, tz).getTime();
       const hit = events.filter((e) => parseInTz(e.end, tz).getTime() > from && parseInTz(e.start, tz).getTime() < to);
+      lastListed = hit;
       return { count: hit.length, events: hit.slice(0, 80).map((e) => compact(e, tz)) };
     }
     if (name === 'find_free_slots') {
@@ -304,7 +306,16 @@ How you work:
     messages.push(msg);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const calls = (msg.tool_calls ?? []) as any[];
-    if (!calls.length) return { reply: msg.content ?? '', proposal };
+    if (!calls.length) {
+      const reply = msg.content ?? '';
+      let matched: CalEvent[] | undefined;
+      if (!proposal && lastListed.length) {
+        const lower = reply.toLowerCase();
+        const hits = lastListed.filter((e) => e.title && lower.includes(e.title.toLowerCase()));
+        if (hits.length > 0) matched = hits.slice(0, 6);
+      }
+      return { reply, proposal, events: matched };
+    }
     for (const call of calls) {
       let out: unknown;
       try {

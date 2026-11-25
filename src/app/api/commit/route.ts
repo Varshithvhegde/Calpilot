@@ -39,7 +39,10 @@ export async function POST(req: NextRequest) {
         const created = await createEvent(token, c, tz);
         results.push({ id: c.id, ok: true, createdId: created?.id });
       } else if (c.type === 'move' && c.eventId && c.start && c.end) {
-        await moveEvent(token, c.eventId, c.start, c.end, tz);
+        await moveEvent(token, c.eventId, c.start, c.end, tz, {
+          title: c.title,
+          description: c.description,
+        });
         results.push({ id: c.id, ok: true });
       } else if (c.type === 'delete' && c.eventId) {
         await deleteEvent(token, c.eventId);

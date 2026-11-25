@@ -5,7 +5,18 @@ export function applyLocal(events: CalEvent[], changes: Change[]): CalEvent[] {
   let out = [...events];
   for (const c of changes) {
     if (c.type === 'delete') out = out.filter((e) => e.id !== c.eventId);
-    else if (c.type === 'move') out = out.map((e) => (e.id === c.eventId ? { ...e, start: c.start!, end: c.end! } : e));
+    else if (c.type === 'move')
+      out = out.map((e) =>
+        e.id === c.eventId
+          ? {
+              ...e,
+              start: c.start!,
+              end: c.end!,
+              ...(c.title !== undefined ? { title: c.title } : {}),
+              ...(c.description !== undefined ? { description: c.description } : {}),
+            }
+          : e,
+      );
     else if (c.type === 'create') {
       out.push({
         id: `demo-${c.id}-${Date.now()}`,

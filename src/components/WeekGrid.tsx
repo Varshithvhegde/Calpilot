@@ -81,6 +81,7 @@ export default function WeekGrid({
   loading = false,
   proposalPhase = 'idle',
   onTryPrompt,
+  onSlotClick,
 }: {
   weekStart: Date;
   items: GridItem[];
@@ -88,6 +89,7 @@ export default function WeekGrid({
   loading?: boolean;
   proposalPhase?: 'idle' | 'applying' | 'discarding';
   onTryPrompt?: (prompt: string) => void;
+  onSlotClick?: (start: Date) => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(() => new Date());
@@ -268,7 +270,16 @@ export default function WeekGrid({
             return (
               <div
                 key={di}
-                className={`hour-lines relative border-l border-line/80 ${today ? 'bg-cobalt/[0.025]' : ''}`}
+                onClick={(e) => {
+                  if (!onSlotClick || e.target !== e.currentTarget) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const y = e.clientY - rect.top;
+                  const hour = Math.max(0, Math.min(23, Math.floor(y / HOUR_H)));
+                  const slot = new Date(d);
+                  slot.setHours(hour, 0, 0, 0);
+                  onSlotClick(slot);
+                }}
+                className={`hour-lines relative border-l border-line/80 ${onSlotClick ? 'cursor-pointer' : ''} ${today ? 'bg-cobalt/[0.025]' : ''}`}
               >
                 {loading &&
                   SKELETON_BLOCKS.filter((b) => b.day === di).map((b, idx) => (

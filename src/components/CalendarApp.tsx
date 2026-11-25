@@ -24,6 +24,10 @@ const THINKING_STEPS = ['Reading your calendar', 'Finding free slots', 'Drafting
 const when = (iso?: string) =>
   iso ? new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
 const money = (n: number) => `$${n.toLocaleString('en-US')}`;
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const toYmdLocal = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const toHmLocal = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+const combineLocal = (ymd: string, hm: string) => new Date(`${ymd}T${hm}:00`).toISOString();
 
 function useStored<T>(key: string, init: T): [T, (v: T) => void] {
   const [v, setV] = useState<T>(init);
@@ -93,6 +97,22 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
   const [notesText, setNotesText] = useState('');
   const [notesLoading, setNotesLoading] = useState(false);
   const [actionItems, setActionItems] = useState<string[] | null>(null);
+  const [editingEvent, setEditingEvent] = useState<{
+    mode: 'edit' | 'create';
+    title: string;
+    date: string;
+    start: string;
+    end: string;
+    description: string;
+  } | null>(null);
+  const [savingEvent, setSavingEvent] = useState(false);
+  const [editingChangeId, setEditingChangeId] = useState<string | null>(null);
+  const [changeDraft, setChangeDraft] = useState<{ title: string; date: string; start: string; end: string }>({
+    title: '',
+    date: '',
+    start: '',
+    end: '',
+  });
 
   const [goals, setGoals] = useStored<string>('cc-goals', '');
   const [rate, setRate] = useStored<number>('cc-rate', 60);
@@ -141,6 +161,7 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
     setNotesOpen(false);
     setNotesText('');
     setActionItems(null);
+    setEditingEvent(null);
   }, [selected?.id]);
 
   // Theme initialization & persistence
@@ -243,61 +264,48 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
     rec.continuous = true;
     rec.interimResults = true;
     rec.lang = 'en-US';
-    let sentIndex = 0;
-    let silenceTimer: ReturnType<typeof setTimeout> | null = null;
-    let latestText = '';
-    let latestLen = 0;
-
-    const flushVoice = () => {
-      if (silenceTimer) {
-        clearTimeout(silenceTimer);
-        silenceTimer = null;
-      }
-      const cmd = latestText.trim();
-      if (!cmd || !voiceModeRef.current) return;
-      sentIndex = latestLen;
-      latestText = '';
-      setInput('');
-      if (
-        hasProposalRef.current &&
-        /^(approve|apply|confirm|yes|go ahead|looks good|do it|save)(\s+(it|the|changes?|all|please))*[.!?]*$/i.test(cmd)
-      ) {
-        approveRef.current();
-      } else if (
-        hasProposalRef.current &&
-        /^(discard|cancel|reject|never mind|nope|no)(\s+(it|the|changes?|please))*[.!?]*$/i.test(cmd)
-      ) {
-        discardRef.current();
-      } else {
-        sendRef.current(cmd);
-      }
-    };
+    let finalBuffer = '';
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     rec.onresult = (ev: any) => {
-      const parts: string[] = [];
-      for (let i = sentIndex; i < ev.results.length; i++) {
-        const t = (ev.results[i][0]?.transcript ?? '').trim();
-        if (t) parts.push(t);
+      let interim = '';
+      let latestFinal = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const transcript = ev.results[i][0]?.transcript ?? '';
+        if (ev.results[i].isFinal) {
+          finalBuffer += (finalBuffer ? ' ' : '') + transcript.trim();
+          latestFinal = finalBuffer;
+        } else {
+          interim += transcript;
+        }
       }
-      latestLen = ev.results.length;
-      latestText = parts.join(' ').trim();
-      setInput(latestText);
-
-      if (silenceTimer) clearTimeout(silenceTimer);
-      if (voiceModeRef.current && latestText) {
-        silenceTimer = setTimeout(flushVoice, 1200);
+      const combined = [finalBuffer, interim.trim()].filter(Boolean).join(' ');
+      setInput(combined);
+      if (latestFinal && voiceModeRef.current) {
+        const cmd = latestFinal.trim();
+        finalBuffer = '';
+        setInput('');
+        if (
+          hasProposalRef.current &&
+          /^(approve|apply|confirm|yes|go ahead|looks good|do it|save)(\s+(it|the|changes?|all|please))*[.!?]*$/i.test(cmd)
+        ) {
+          approveRef.current();
+        } else if (
+          hasProposalRef.current &&
+          /^(discard|cancel|reject|never mind|nope|no)(\s+(it|the|changes?|please))*[.!?]*$/i.test(cmd)
+        ) {
+          discardRef.current();
+        } else {
+          sendRef.current(cmd);
+        }
       }
     };
 
     rec.onerror = () => {
-      if (silenceTimer) clearTimeout(silenceTimer);
       setListening(false);
       recognitionRef.current = null;
     };
     rec.onend = () => {
-      if (silenceTimer) clearTimeout(silenceTimer);
-      if (voiceModeRef.current && latestText.trim()) flushVoice();
       setListening(false);
       recognitionRef.current = null;
     };
@@ -488,7 +496,7 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'The agent failed');
       const replyText = data.reply || 'Done.';
-      setMessages((m) => [...m, { role: 'assistant', content: replyText }]);
+      setMessages((m) => [...m, { role: 'assistant', content: replyText, events: data.events }]);
       setProposal(data.proposal ?? null);
       setProposalPhase('idle');
       setExcluded(new Set());
@@ -658,6 +666,181 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
   approveRef.current = approve;
   discardRef.current = discardProposal;
 
+  const openCreateEvent = (slotStart?: Date) => {
+    const base = slotStart ? new Date(slotStart) : new Date();
+    if (!slotStart) {
+      base.setMinutes(0, 0, 0);
+      base.setHours(base.getHours() + 1);
+    }
+    const end = new Date(base.getTime() + 60 * 60000);
+    setSelected(null);
+    setEditingEvent({
+      mode: 'create',
+      title: '',
+      date: toYmdLocal(base),
+      start: toHmLocal(base),
+      end: toHmLocal(end),
+      description: '',
+    });
+  };
+
+  const openEditSelected = () => {
+    if (!selected) return;
+    const s = new Date(selected.start);
+    const e = new Date(selected.end);
+    setEditingEvent({
+      mode: 'edit',
+      title: selected.title,
+      date: toYmdLocal(s),
+      start: toHmLocal(s),
+      end: toHmLocal(e),
+      description: selected.description ?? '',
+    });
+  };
+
+  const saveManualEvent = async () => {
+    if (!editingEvent || !editingEvent.title.trim()) return;
+    const startIso = combineLocal(editingEvent.date, editingEvent.start);
+    const endIso = combineLocal(editingEvent.date, editingEvent.end);
+    if (new Date(endIso) <= new Date(startIso)) {
+      pushToast('error', 'End time must be after start time');
+      return;
+    }
+    setSavingEvent(true);
+    const prevEvents = events;
+    try {
+      if (editingEvent.mode === 'create') {
+        const change: Change = {
+          id: `m-${Date.now()}`,
+          type: 'create',
+          title: editingEvent.title.trim(),
+          start: startIso,
+          end: endIso,
+          description: editingEvent.description.trim() || undefined,
+          reason: 'Manual event',
+        };
+        if (demo) {
+          setEvents((evs) => applyLocal(evs, [change]));
+        } else {
+          const res = await fetch('/api/commit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tz, changes: [change] }),
+          });
+          if (!res.ok) throw new Error('Could not create event');
+          await loadEvents();
+        }
+        pushToast('success', `Created "${change.title}"`, demo ? { label: 'Undo', onClick: () => setEvents(prevEvents) } : undefined);
+        setEditingEvent(null);
+      } else if (selected) {
+        const change: Change = {
+          id: `m-${Date.now()}`,
+          type: 'move',
+          eventId: selected.id,
+          title: editingEvent.title.trim(),
+          start: startIso,
+          end: endIso,
+          description: editingEvent.description.trim(),
+          reason: 'Manual edit',
+          before: { title: selected.title, start: selected.start, end: selected.end },
+        };
+        if (demo) {
+          setEvents((evs) => applyLocal(evs, [change]));
+        } else {
+          const res = await fetch('/api/commit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tz, changes: [change] }),
+          });
+          if (!res.ok) throw new Error('Could not update event');
+          await loadEvents();
+        }
+        setSelected((s) =>
+          s ? { ...s, title: change.title!, start: startIso, end: endIso, description: change.description } : null,
+        );
+        setEditingEvent(null);
+        pushToast('success', `Updated "${change.title}"`, demo ? { label: 'Undo', onClick: () => setEvents(prevEvents) } : undefined);
+      }
+    } catch (e) {
+      pushToast('error', e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSavingEvent(false);
+    }
+  };
+
+  const deleteManualEvent = async () => {
+    if (!selected) return;
+    setSavingEvent(true);
+    const prevEvents = events;
+    const target = selected;
+    try {
+      const change: Change = {
+        id: `d-${Date.now()}`,
+        type: 'delete',
+        eventId: target.id,
+        reason: 'Deleted manually',
+        before: { title: target.title, start: target.start, end: target.end },
+      };
+      if (demo) {
+        setEvents((evs) => applyLocal(evs, [change]));
+      } else {
+        const res = await fetch('/api/commit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tz, changes: [change] }),
+        });
+        if (!res.ok) throw new Error('Could not delete event');
+        await loadEvents();
+      }
+      setSelected(null);
+      setEditingEvent(null);
+      pushToast('info', `Removed "${target.title}"`, demo ? { label: 'Undo', onClick: () => setEvents(prevEvents) } : undefined);
+    } catch (e) {
+      pushToast('error', e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setSavingEvent(false);
+    }
+  };
+
+  const startEditProposalChange = (c: Change) => {
+    const baseStart = new Date(c.start ?? c.before?.start ?? Date.now());
+    const baseEnd = new Date(c.end ?? c.before?.end ?? baseStart.getTime() + 3600000);
+    setEditingChangeId(c.id);
+    setChangeDraft({
+      title: c.title ?? c.before?.title ?? '',
+      date: toYmdLocal(baseStart),
+      start: toHmLocal(baseStart),
+      end: toHmLocal(baseEnd),
+    });
+  };
+
+  const saveProposalChange = (id: string) => {
+    const startIso = combineLocal(changeDraft.date, changeDraft.start);
+    const endIso = combineLocal(changeDraft.date, changeDraft.end);
+    if (new Date(endIso) <= new Date(startIso)) {
+      pushToast('error', 'End time must be after start time');
+      return;
+    }
+    setProposal((p) =>
+      p
+        ? {
+            ...p,
+            changes: p.changes.map((c) =>
+              c.id === id
+                ? {
+                    ...c,
+                    ...(c.type === 'create' && changeDraft.title.trim() ? { title: changeDraft.title.trim() } : {}),
+                    start: startIso,
+                    end: endIso,
+                  }
+                : c,
+            ),
+          }
+        : null,
+    );
+    setEditingChangeId(null);
+  };
+
   const runTriage = async () => {
     setTriaging(true);
     try {
@@ -810,6 +993,13 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
         </div>
 
         <div className="ml-auto flex items-center gap-2 text-sm">
+          <button
+            onClick={() => openCreateEvent()}
+            className="inline-flex items-center gap-1 rounded-[6px] border border-line bg-surface px-2.5 py-1 text-xs font-semibold text-ink shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-cobalt/45 hover:text-cobalt"
+            title="Create a new event manually"
+          >
+            <span>+ Event</span>
+          </button>
           {speaking && (
             <button
               onClick={stopSpeaking}
@@ -913,92 +1103,173 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
             loading={loading}
             proposalPhase={proposalPhase}
             onTryPrompt={(p) => send(p)}
+            onSlotClick={(slot) => openCreateEvent(slot)}
           />
-          {selected && (
-            <div className="settle absolute bottom-4 left-16 z-20 max-h-[75vh] w-96 max-w-[calc(100%-5rem)] overflow-y-auto rounded-[10px] border border-line bg-surface p-4 text-sm shadow-[0_4px_12px_rgba(16,24,40,0.08),0_16px_36px_-12px_rgba(16,24,40,0.28)]">
-              <div className="flex items-start justify-between gap-3">
-                <p className="font-display text-base font-bold leading-snug text-ink">{selected.title}</p>
-                <button
-                  onClick={() => setSelected(null)}
-                  className="rounded-[6px] px-1.5 py-0.5 text-xs font-medium text-mute transition hover:bg-paper hover:text-ink"
-                  aria-label="Close details"
-                >
-                  Close
-                </button>
-              </div>
-              <p className="mt-1.5 text-xs font-medium text-mute tabular-nums">
-                {when(selected.start)} – {new Date(selected.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-              </p>
-              <div className="mt-3 flex items-center justify-between rounded-[6px] bg-paper/70 px-2.5 py-1.5 text-xs">
-                <span className="text-mute">
-                  {selected.attendees.length} {selected.attendees.length === 1 ? 'person' : 'people'}
-                </span>
-                <span className="font-semibold text-ink tabular-nums">~{money(meetingCost(selected, rate))}</span>
-              </div>
-              <p className="mt-2.5 text-xs leading-relaxed text-mute">
-                {selected.description?.trim() ? selected.description : 'No agenda attached.'}
-              </p>
-              {selected.htmlLink && (
-                <a
-                  href={selected.htmlLink}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-2.5 inline-flex items-center gap-1 text-xs font-semibold text-cobalt hover:underline"
-                >
-                  Open in Google Calendar →
-                </a>
-              )}
-
-              <div className="mt-3.5 flex gap-2 border-t border-line/80 pt-3">
-                <button
-                  onClick={runPrep}
-                  disabled={prepping}
-                  className="flex-1 rounded-[6px] bg-cobalt/10 px-2.5 py-1.5 text-xs font-semibold text-cobalt transition hover:bg-cobalt/15 disabled:opacity-50"
-                >
-                  {prepping ? 'Prepping…' : 'Prep me'}
-                </button>
-                <button
-                  onClick={() => setNotesOpen((o) => !o)}
-                  className="flex-1 rounded-[6px] border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink transition hover:bg-paper"
-                >
-                  {notesOpen ? 'Hide notes' : 'Paste notes'}
-                </button>
-              </div>
-
-              {prepBrief && (
-                <div className="mt-3 whitespace-pre-wrap rounded-[6px] border border-cobalt/25 bg-cobalt/[0.04] p-2.5 text-xs leading-relaxed text-ink">
-                  {prepBrief}
-                </div>
-              )}
-
-              {notesOpen && (
-                <div className="mt-3 space-y-2">
-                  <textarea
-                    value={notesText}
-                    onChange={(e) => setNotesText(e.target.value)}
-                    rows={3}
-                    placeholder="Paste meeting notes to extract action items & follow-ups..."
-                    className="w-full rounded-[6px] border border-line bg-paper/40 px-2.5 py-2 text-xs text-ink placeholder:text-mute/70 focus:border-cobalt focus:outline-none"
+          {(selected || editingEvent) && (
+            <div className="settle absolute bottom-4 left-16 z-20 max-h-[78vh] w-96 max-w-[calc(100%-5rem)] overflow-y-auto rounded-[10px] border border-line bg-surface p-4 text-sm shadow-[0_4px_12px_rgba(16,24,40,0.08),0_16px_36px_-12px_rgba(16,24,40,0.28)]">
+              {editingEvent ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="font-display text-sm font-bold text-ink">
+                      {editingEvent.mode === 'create' ? 'New event' : 'Edit event'}
+                    </p>
+                    <button
+                      onClick={() => setEditingEvent(null)}
+                      className="rounded-[6px] px-1.5 py-0.5 text-xs font-medium text-mute hover:bg-paper hover:text-ink"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <input
+                    value={editingEvent.title}
+                    onChange={(e) => setEditingEvent({ ...editingEvent, title: e.target.value })}
+                    placeholder="Event title"
+                    className="w-full rounded-[6px] border border-line bg-paper/40 px-2.5 py-1.5 text-xs font-semibold text-ink focus:border-cobalt focus:outline-none"
+                    autoFocus
                   />
-                  <button
-                    onClick={runNotes}
-                    disabled={notesLoading || !notesText.trim()}
-                    className="w-full rounded-[6px] bg-ink px-3 py-1.5 text-xs font-semibold text-paper transition hover:bg-ink/90 disabled:opacity-40"
-                  >
-                    {notesLoading ? 'Extracting…' : 'Extract action items & follow-ups'}
-                  </button>
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      type="date"
+                      value={editingEvent.date}
+                      onChange={(e) => setEditingEvent({ ...editingEvent, date: e.target.value })}
+                      className="col-span-3 rounded-[6px] border border-line bg-paper/40 px-2 py-1.5 text-xs text-ink focus:border-cobalt focus:outline-none sm:col-span-1"
+                    />
+                    <input
+                      type="time"
+                      value={editingEvent.start}
+                      onChange={(e) => setEditingEvent({ ...editingEvent, start: e.target.value })}
+                      className="rounded-[6px] border border-line bg-paper/40 px-2 py-1.5 text-xs text-ink focus:border-cobalt focus:outline-none"
+                    />
+                    <input
+                      type="time"
+                      value={editingEvent.end}
+                      onChange={(e) => setEditingEvent({ ...editingEvent, end: e.target.value })}
+                      className="rounded-[6px] border border-line bg-paper/40 px-2 py-1.5 text-xs text-ink focus:border-cobalt focus:outline-none"
+                    />
+                  </div>
+                  <textarea
+                    value={editingEvent.description}
+                    onChange={(e) => setEditingEvent({ ...editingEvent, description: e.target.value })}
+                    rows={2}
+                    placeholder="Agenda or description (optional)"
+                    className="w-full rounded-[6px] border border-line bg-paper/40 px-2.5 py-1.5 text-xs text-ink placeholder:text-mute/70 focus:border-cobalt focus:outline-none"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={saveManualEvent}
+                      disabled={savingEvent || !editingEvent.title.trim()}
+                      className="flex-1 rounded-[6px] bg-cobalt px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-cobalt/90 disabled:opacity-50"
+                    >
+                      {savingEvent ? 'Saving…' : editingEvent.mode === 'create' ? 'Create event' : 'Save changes'}
+                    </button>
+                    {editingEvent.mode === 'edit' && (
+                      <button
+                        onClick={deleteManualEvent}
+                        disabled={savingEvent}
+                        className="rounded-[6px] border border-drop/30 bg-drop/10 px-3 py-1.5 text-xs font-semibold text-drop transition hover:bg-drop/15"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
-              )}
+              ) : (
+                selected && (
+                  <>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-display text-base font-bold leading-snug text-ink">{selected.title}</p>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={openEditSelected}
+                          className="rounded-[6px] px-1.5 py-0.5 text-xs font-semibold text-cobalt transition hover:bg-cobalt/10"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => setSelected(null)}
+                          className="rounded-[6px] px-1.5 py-0.5 text-xs font-medium text-mute transition hover:bg-paper hover:text-ink"
+                          aria-label="Close details"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                    <p className="mt-1.5 text-xs font-medium text-mute tabular-nums">
+                      {when(selected.start)} – {new Date(selected.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    </p>
+                    <div className="mt-3 flex items-center justify-between rounded-[6px] bg-paper/70 px-2.5 py-1.5 text-xs">
+                      <span className="text-mute">
+                        {selected.attendees.length} {selected.attendees.length === 1 ? 'person' : 'people'}
+                      </span>
+                      <span className="font-semibold text-ink tabular-nums">~{money(meetingCost(selected, rate))}</span>
+                    </div>
+                    <p className="mt-2.5 text-xs leading-relaxed text-mute">
+                      {selected.description?.trim() ? selected.description : 'No agenda attached.'}
+                    </p>
+                    {selected.htmlLink && (
+                      <a
+                        href={selected.htmlLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-2.5 inline-flex items-center gap-1 text-xs font-semibold text-cobalt hover:underline"
+                      >
+                        Open in Google Calendar →
+                      </a>
+                    )}
 
-              {actionItems && actionItems.length > 0 && (
-                <div className="mt-3 rounded-[6px] border border-add/25 bg-add/[0.06] p-2.5 text-xs">
-                  <p className="font-semibold text-add">Action items</p>
-                  <ul className="mt-1 list-disc space-y-1 pl-4 text-ink">
-                    {actionItems.map((it, idx) => (
-                      <li key={idx}>{it}</li>
-                    ))}
-                  </ul>
-                </div>
+                    <div className="mt-3.5 flex gap-2 border-t border-line/80 pt-3">
+                      <button
+                        onClick={runPrep}
+                        disabled={prepping}
+                        className="flex-1 rounded-[6px] bg-cobalt/10 px-2.5 py-1.5 text-xs font-semibold text-cobalt transition hover:bg-cobalt/15 disabled:opacity-50"
+                      >
+                        {prepping ? 'Prepping…' : 'Prep me'}
+                      </button>
+                      <button
+                        onClick={() => setNotesOpen((o) => !o)}
+                        className="flex-1 rounded-[6px] border border-line bg-surface px-2.5 py-1.5 text-xs font-semibold text-ink transition hover:bg-paper"
+                      >
+                        {notesOpen ? 'Hide notes' : 'Paste notes'}
+                      </button>
+                    </div>
+
+                    {prepBrief && (
+                      <div className="mt-3 whitespace-pre-wrap rounded-[6px] border border-cobalt/25 bg-cobalt/[0.04] p-2.5 text-xs leading-relaxed text-ink">
+                        {prepBrief}
+                      </div>
+                    )}
+
+                    {notesOpen && (
+                      <div className="mt-3 space-y-2">
+                        <textarea
+                          value={notesText}
+                          onChange={(e) => setNotesText(e.target.value)}
+                          rows={3}
+                          placeholder="Paste meeting notes to extract action items & follow-ups..."
+                          className="w-full rounded-[6px] border border-line bg-paper/40 px-2.5 py-2 text-xs text-ink placeholder:text-mute/70 focus:border-cobalt focus:outline-none"
+                        />
+                        <button
+                          onClick={runNotes}
+                          disabled={notesLoading || !notesText.trim()}
+                          className="w-full rounded-[6px] bg-ink px-3 py-1.5 text-xs font-semibold text-paper transition hover:bg-ink/90 disabled:opacity-40"
+                        >
+                          {notesLoading ? 'Extracting…' : 'Extract action items & follow-ups'}
+                        </button>
+                      </div>
+                    )}
+
+                    {actionItems && actionItems.length > 0 && (
+                      <div className="mt-3 rounded-[6px] border border-add/25 bg-add/[0.06] p-2.5 text-xs">
+                        <p className="font-semibold text-add">Action items</p>
+                        <ul className="mt-1 list-disc space-y-1 pl-4 text-ink">
+                          {actionItems.map((it, idx) => (
+                            <li key={idx}>{it}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
+                )
               )}
             </div>
           )}
@@ -1080,20 +1351,48 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
                   </div>
                 )}
                 {messages.map((m, i) => (
-                  <div key={i} className={m.role === 'user' ? 'flex justify-end' : 'group'}>
+                  <div key={i} className={m.role === 'user' ? 'flex justify-end' : 'group space-y-2'}>
                     <div
-                      className={`max-w-[88%] whitespace-pre-wrap rounded-[16px] px-3.5 py-2.5 text-[13px] leading-relaxed ${
+                      className={`max-w-[92%] whitespace-pre-wrap rounded-[16px] px-3.5 py-2.5 text-[13px] leading-relaxed ${
                         m.role === 'user'
                           ? 'rounded-br-[6px] bg-ink text-paper shadow-[0_2px_6px_rgba(16,24,40,0.14)]'
-                          : 'rounded-bl-[6px] border border-line/70 bg-paper/75 text-ink'
+                          : 'rounded-bl-[6px] border border-line/80 bg-surface text-ink shadow-[0_1px_3px_rgba(16,24,40,0.04)]'
                       }`}
                     >
                       <p>{m.content}</p>
+                      {m.events && m.events.length > 0 && (
+                        <div className="mt-2.5 space-y-1.5">
+                          {m.events.map((ev) => (
+                            <button
+                              key={ev.id}
+                              type="button"
+                              onClick={() => {
+                                setEditingEvent(null);
+                                setSelected(ev);
+                                setWeekStart(startOfWeek(new Date(ev.start)));
+                              }}
+                              className="flex w-full items-center justify-between gap-2.5 rounded-[10px] border border-line/80 border-l-[3px] border-l-cobalt bg-paper/55 px-3 py-2 text-left transition hover:border-cobalt/50 hover:bg-cobalt/[0.04]"
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-xs font-semibold text-ink">{ev.title}</p>
+                                <p className="mt-0.5 text-[11px] text-mute tabular-nums">
+                                  {when(ev.start)} –{' '}
+                                  {new Date(ev.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                  {ev.attendees.length > 1 ? ` · ${ev.attendees.length} people` : ''}
+                                </p>
+                              </div>
+                              <span className="shrink-0 rounded-[6px] border border-line bg-surface px-2 py-0.5 text-[10px] font-semibold text-cobalt">
+                                Open
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       {m.role === 'assistant' && (
                         <button
                           type="button"
                           onClick={() => speak(m.content)}
-                          className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-mute opacity-0 transition hover:text-cobalt group-hover:opacity-100 focus:opacity-100"
+                          className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold text-mute opacity-0 transition hover:text-cobalt group-hover:opacity-100 focus:opacity-100"
                           aria-label="Read reply aloud"
                         >
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1150,21 +1449,76 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
                                 })
                               }
                             />
-                            <div className="min-w-0 text-[12.5px] leading-snug">
-                              <p className="flex flex-wrap items-center gap-1.5">
-                                <span className={`rounded-[6px] border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tag[1]}`}>
-                                  {tag[0]}
-                                </span>
-                                <span className="font-semibold text-ink">{title}</span>
-                              </p>
-                              <p className="mt-1 text-xs font-medium text-mute tabular-nums">
-                                {c.type === 'delete'
-                                  ? when(c.before?.start)
-                                  : c.type === 'move'
-                                    ? `${when(c.before?.start)} → ${when(c.start)}`
-                                    : when(c.start)}
-                              </p>
-                              <p className="mt-0.5 text-xs text-mute">{c.reason}</p>
+                            <div className="min-w-0 flex-1 text-[12.5px] leading-snug">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="flex flex-wrap items-center gap-1.5">
+                                  <span className={`rounded-[6px] border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tag[1]}`}>
+                                    {tag[0]}
+                                  </span>
+                                  <span className="font-semibold text-ink">{title}</span>
+                                </p>
+                                {c.type !== 'delete' && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      editingChangeId === c.id ? setEditingChangeId(null) : startEditProposalChange(c)
+                                    }
+                                    className="shrink-0 text-[11px] font-semibold text-cobalt hover:underline"
+                                  >
+                                    {editingChangeId === c.id ? 'Done' : 'Edit'}
+                                  </button>
+                                )}
+                              </div>
+                              {editingChangeId === c.id ? (
+                                <div className="mt-2 space-y-1.5 rounded-[6px] border border-line/80 bg-paper/45 p-2">
+                                  {c.type === 'create' && (
+                                    <input
+                                      value={changeDraft.title}
+                                      onChange={(e) => setChangeDraft({ ...changeDraft, title: e.target.value })}
+                                      placeholder="Title"
+                                      className="w-full rounded-[6px] border border-line bg-surface px-2 py-1 text-xs text-ink focus:border-cobalt focus:outline-none"
+                                    />
+                                  )}
+                                  <div className="grid grid-cols-3 gap-1.5">
+                                    <input
+                                      type="date"
+                                      value={changeDraft.date}
+                                      onChange={(e) => setChangeDraft({ ...changeDraft, date: e.target.value })}
+                                      className="col-span-3 rounded-[6px] border border-line bg-surface px-1.5 py-1 text-[11px] text-ink focus:border-cobalt focus:outline-none sm:col-span-1"
+                                    />
+                                    <input
+                                      type="time"
+                                      value={changeDraft.start}
+                                      onChange={(e) => setChangeDraft({ ...changeDraft, start: e.target.value })}
+                                      className="rounded-[6px] border border-line bg-surface px-1.5 py-1 text-[11px] text-ink focus:border-cobalt focus:outline-none"
+                                    />
+                                    <input
+                                      type="time"
+                                      value={changeDraft.end}
+                                      onChange={(e) => setChangeDraft({ ...changeDraft, end: e.target.value })}
+                                      className="rounded-[6px] border border-line bg-surface px-1.5 py-1 text-[11px] text-ink focus:border-cobalt focus:outline-none"
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => saveProposalChange(c.id)}
+                                    className="w-full rounded-[6px] bg-cobalt px-2 py-1 text-[11px] font-semibold text-white hover:bg-cobalt/90"
+                                  >
+                                    Update preview
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  <p className="mt-1 text-xs font-medium text-mute tabular-nums">
+                                    {c.type === 'delete'
+                                      ? when(c.before?.start)
+                                      : c.type === 'move'
+                                        ? `${when(c.before?.start)} → ${when(c.start)}`
+                                        : when(c.start)}
+                                  </p>
+                                  <p className="mt-0.5 text-xs text-mute">{c.reason}</p>
+                                </>
+                              )}
                             </div>
                           </li>
                         );

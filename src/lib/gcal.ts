@@ -72,8 +72,17 @@ export async function createEvent(token: string, c: Change, tz: string) {
   return g(token, `/events?sendUpdates=${sendUpdates()}`, { method: 'POST', body: JSON.stringify(body) });
 }
 
-export async function moveEvent(token: string, id: string, start: string, end: string, tz: string) {
-  const body = { start: { dateTime: start, timeZone: tz }, end: { dateTime: end, timeZone: tz } };
+export async function moveEvent(
+  token: string,
+  id: string,
+  start: string,
+  end: string,
+  tz: string,
+  extra?: { title?: string; description?: string },
+) {
+  const body: Record<string, unknown> = { start: { dateTime: start, timeZone: tz }, end: { dateTime: end, timeZone: tz } };
+  if (extra?.title !== undefined) body.summary = extra.title;
+  if (extra?.description !== undefined) body.description = extra.description;
   return g(token, `/events/${encodeURIComponent(id)}?sendUpdates=${sendUpdates()}`, {
     method: 'PATCH',
     body: JSON.stringify(body),

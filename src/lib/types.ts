@@ -35,7 +35,7 @@ export type Change = {
 
 export type Proposal = { summary: string; changes: Change[]; warnings?: string[] };
 
-export type ChatMsg = { role: 'user' | 'assistant'; content: string };
+export type ChatMsg = { role: 'user' | 'assistant'; content: string; events?: CalEvent[] };
 
 export type TriageItem = {
   eventId: string;
