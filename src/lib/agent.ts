@@ -142,11 +142,20 @@ function freeSlots(
     }
     if (endT - cursor >= minMs) out.push([cursor, endT]);
   }
-  return out.slice(0, 60).map(([s, e]) => ({
-    start: toIsoInTz(new Date(s), tz),
-    end: toIsoInTz(new Date(e), tz),
-    minutes: Math.round((e - s) / 60000),
-  }));
+  const fmtT = (d: Date) =>
+    new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' }).format(d);
+  return out.slice(0, 60).map(([s, e]) => {
+    const sd = new Date(s);
+    const ed = new Date(e);
+    return {
+      day: new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(sd),
+      date: ymdInTz(sd, tz),
+      free: `${fmtT(sd)} - ${fmtT(ed)}`,
+      start: toIsoInTz(sd, tz),
+      end: toIsoInTz(ed, tz),
+      minutes: Math.round((e - s) / 60000),
+    };
+  });
 }
 
 export async function runAgent(opts: {
@@ -172,7 +181,8 @@ export async function runAgent(opts: {
 Right now it is ${weekday} ${toIsoInTz(now, tz)} (timezone ${tz}). Weeks start on Monday. Date map for the next 14 days: ${dateMap}. Default working hours are 09:00-18:00 Monday to Friday unless the user says otherwise.
 ${opts.goals?.trim() ? `The user's current goals and rules:\n${opts.goals.trim()}\n` : ''}
 How you work:
-- You never edit the calendar directly. To change anything, call propose_changes once with every change. The user sees a visual diff and approves it.
+- You never edit the calendar directly. To change anything, you MUST call propose_changes once with every change so the user sees a visual diff. Never say you scheduled, moved, updated, or proposed a change unless you actually called propose_changes and got ok: true.
+- Any sub-range inside a find_free_slots window is completely free (for example, if 1:00 PM - 6:00 PM is free, then 4:00 PM - 5:00 PM and 5:00 PM - 6:00 PM are both free). Never claim a conflict with an event outside that time range.
 - When the user names a day or part of a day (for example "Friday afternoon"), take the exact date from the date map, call list_events for that date, and ONLY pick events whose day, date, and part_of_day match (morning < 12:00, afternoon 12:00-17:00, evening >= 17:00). Do not touch morning events when asked for afternoon. Re-read the day, date, and part_of_day of every event before using its id.
 - When asked to clear or free up a day or time block, include EVERY event in that window in propose_changes: move events where i_am_organizer is true to a free slot on another day/time (call find_free_slots across the next 7 days to find one) or delete them if asked, and delete/decline events where i_am_organizer is false. Never mention any change in your reply that is not in applied_as.
 - For move and delete, send expected_title with the exact title of the event.
@@ -294,6 +304,7 @@ How you work:
     return { error: `unknown tool ${name}` };
   };
 
+  let nudged = false;
   for (let i = 0; i < 8; i++) {
     const res = await openai().chat.completions.create({
       model: MODEL(),
@@ -308,6 +319,20 @@ How you work:
     const calls = (msg.tool_calls ?? []) as any[];
     if (!calls.length) {
       const reply = msg.content ?? '';
+      if (
+        !proposal &&
+        !nudged &&
+        /\b(propos(e|ing|ed)|schedul(e|ed|ing)|mov(e|ed|ing)|add(ed|ing)|creat(e|ed|ing)|delet(e|ed|ing)|updat(e|ed|ing))\b/i.test(reply) &&
+        !/\b(cannot|can't|unable|conflict|already booked)\b/i.test(reply)
+      ) {
+        nudged = true;
+        messages.push({
+          role: 'user',
+          content:
+            'You did not call propose_changes. Call propose_changes right now with the actual change(s) so the preview appears on the calendar.',
+        });
+        continue;
+      }
       let matched: CalEvent[] | undefined;
       if (!proposal && lastListed.length) {
         const lower = reply.toLowerCase();
