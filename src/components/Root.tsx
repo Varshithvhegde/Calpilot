@@ -11,7 +11,7 @@ export default function Root() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem('cc-theme');
-      const isDark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const isDark = saved === 'dark';
       document.documentElement.classList.toggle('dark', isDark);
     } catch {}
   }, []);

@@ -216,7 +216,7 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
   useEffect(() => {
     try {
       const saved = localStorage.getItem('cc-theme');
-      const isDark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const isDark = saved === 'dark';
       setDark(isDark);
       document.documentElement.classList.toggle('dark', isDark);
     } catch {}
