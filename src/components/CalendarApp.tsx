@@ -37,6 +37,46 @@ const toYmdLocal = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${
 const toHmLocal = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 const combineLocal = (ymd: string, hm: string) => new Date(`${ymd}T${hm}:00`).toISOString();
 
+function cleanHtmlDescription(raw: string): string {
+  return raw
+    .replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_, href: string, label: string) => {
+      const text = label.replace(/<[^>]+>/g, '').trim();
+      return !text || text === href || text.startsWith('http') ? href : `${text} (${href})`;
+    })
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(div|p|li|h[1-6]|tr)>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function DescriptionText({ text }: { text?: string }) {
+  const cleaned = text?.trim() ? cleanHtmlDescription(text) : '';
+  if (!cleaned) return <p className="mt-2.5 text-xs leading-relaxed text-mute">No agenda attached.</p>;
+  const parts = cleaned.split(/(https?:\/\/[^\s)<>]+)/g);
+  return (
+    <div className="mt-2.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-[6px] bg-paper/45 p-2.5 text-xs leading-relaxed text-mute">
+      {parts.map((part, i) =>
+        /^https?:\/\//.test(part) ? (
+          <a key={i} href={part} target="_blank" rel="noreferrer" className="break-all font-medium text-cobalt underline">
+            {part}
+          </a>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </div>
+  );
+}
+
 function useStored<T>(key: string, init: T): [T, (v: T) => void] {
   const [v, setV] = useState<T>(init);
   useEffect(() => {
@@ -1211,9 +1251,7 @@ export default function CalendarApp({ demo, user, onExitDemo }: { demo: boolean;
                       </span>
                       <span className="font-semibold text-ink tabular-nums">~{money(meetingCost(selected, rate))}</span>
                     </div>
-                    <p className="mt-2.5 text-xs leading-relaxed text-mute">
-                      {selected.description?.trim() ? selected.description : 'No agenda attached.'}
-                    </p>
+                    <DescriptionText text={selected.description} />
                     {selected.htmlLink && (
                       <a
                         href={selected.htmlLink}
