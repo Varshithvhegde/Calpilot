@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { signIn } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import Logo from './Logo';
@@ -318,6 +319,18 @@ export default function Landing({ onDemo }: { onDemo: () => void }) {
 
         <MiniWeek />
       </main>
+
+      <footer className="mx-auto flex w-full max-w-6xl items-center justify-between border-t border-line/70 px-6 py-4 text-xs text-mute">
+        <span>© {new Date().getFullYear()} Calpilot</span>
+        <div className="flex items-center gap-4">
+          <Link href="/privacy" className="transition hover:text-ink">
+            Privacy Policy
+          </Link>
+          <Link href="/terms" className="transition hover:text-ink">
+            Terms &amp; Conditions
+          </Link>
+        </div>
+      </footer>
     </div>
   );
 }
